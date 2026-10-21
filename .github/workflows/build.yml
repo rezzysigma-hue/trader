@@ -1,9 +1,10 @@
+
 name: Build EventEdge AI APK
 
 on:
   push:
     paths:
-      - 'EventEdgeAI-project.zip'
+      - '**.zip'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
@@ -13,6 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,22 +30,50 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Check that the project ZIP exists
-        run: test -f EventEdgeAI-project.zip
+      - name: Find uploaded ZIP
+        shell: bash
+        run: |
+          ZIP_PATH="$(find . -type f -iname '*.zip' \
+            -not -path './.git/*' -print -quit)"
 
-      - name: Extract uploaded project ZIP
-        run: unzip -q EventEdgeAI-project.zip -d extracted-project
+          if [ -z "$ZIP_PATH" ]; then
+            echo "ERROR: No ZIP file found in the repository."
+            echo "Upload your project ZIP using Add file > Upload files."
+            exit 1
+          fi
+
+          echo "Found project archive: $ZIP_PATH"
+          echo "ZIP_PATH=$ZIP_PATH" >> "$GITHUB_ENV"
+
+      - name: Extract project ZIP
+        shell: bash
+        run: |
+          mkdir extracted-project
+          unzip -q "$ZIP_PATH" -d extracted-project
+
+          SETTINGS="$(find extracted-project -type f \
+            -name settings.gradle.kts -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle.kts was not found in the ZIP."
+            echo "The ZIP must contain the Android Gradle project."
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found Android project at: $PROJECT_DIR"
 
       - name: Run tests
-        run: gradle -p extracted-project/EventEdgeAI testDebugUnitTest
+        run: gradle -p "$PROJECT_DIR" testDebugUnitTest
 
       - name: Build debug APK
-        run: gradle -p extracted-project/EventEdgeAI assembleDebug
+        run: gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: eventedge-ai-debug-apk
-          path: extracted-project/EventEdgeAI/app/build/outputs/apk/debug/app-debug.apk
+          path: extracted-project/**/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
